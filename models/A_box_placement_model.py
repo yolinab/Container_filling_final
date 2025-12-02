@@ -62,6 +62,7 @@ class BoxPlacementModel:
         self._add_no_overlap_constraints()
         self._add_no_levitation_constraints()
         self._add_bounding_box_constraints()
+        self._add_symmetry_breaking_constraints()
 
     def _add_rotation_constraints(self):
         """Rotation: if rot[p]=0 -> (eff_len=len, eff_wid=wid),
@@ -182,6 +183,29 @@ class BoxPlacementModel:
             max([self.z[p] + self.heights[p] for p in range(n)])
         )
 
+    def _add_symmetry_breaking_constraints(self):
+        """
+        Symmetry-breaking: for boxes with identical dimensions,
+        impose an ordering on (x,y) to avoid exploring permutations
+        of identical solutions.
+        """
+        n = self.num_boxes
+        for p in range(n):
+            for q in range(p + 1, n):
+                same_dims = (
+                    self.lengths[p] == self.lengths[q] and
+                    self.widths[p]  == self.widths[q]  and
+                    self.heights[p] == self.heights[q]
+                )
+                if not same_dims:
+                    continue
+
+                # Enforce: box p is "not after" box q in (x,y) lexicographically
+                # x[p] < x[q] OR (x[p] == x[q] AND y[p] <= y[q])
+                self.model += (
+                    (self.x[p] < self.x[q]) |
+                    ((self.x[p] == self.x[q]) & (self.y[p] <= self.y[q]))
+                )
     # ------------------------------------------------------------------
     # Objective
     # ------------------------------------------------------------------

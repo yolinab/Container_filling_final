@@ -48,3 +48,4 @@ dist/
 # ---- Generated output ----
 test_output_of_parse.csv
 results/
+.DS_Store

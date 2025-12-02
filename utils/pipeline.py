@@ -26,7 +26,7 @@ def run_box_placement(excel_path, W, L, H, BUF, solver="ortools", time_limit=60)
     max_y = model.max_y_extent.value()
     free_len = max(0, L - max_y)
 
-    return model, free_len
+    return model, free_len, pallets_data
 
 
 def run_reccomend_fill(pallets_data, BUF, free_len, solver="ortools", time_limit=60):

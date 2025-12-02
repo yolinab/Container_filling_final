@@ -1,0 +1,50 @@
+# ---- macOS junk ----
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# ---- Python cache ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pdb
+*.egg-info/
+*.egg
+*.manifest
+*.spec
+
+# ---- Virtual environments ----
+venv/
+env/
+.venv/
+.mps-venv/
+.mps/
+*/mps-venv/
+
+# ---- Jupyter ----
+.ipynb_checkpoints/
+
+# ---- Build / dist ----
+build/
+dist/
+*.egg-info/
+
+# ---- Logs ----
+*.log
+
+# ---- IDE / Editor ----
+.vscode/
+.idea/
+
+# ---- Misc ----
+*.sqlite3
+*.db
+*.dat
+*.tmp
+
+# ---- Generated output ----
+test_output_of_parse.csv
+results/

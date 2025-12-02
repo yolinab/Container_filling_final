@@ -4,18 +4,25 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
 # --------------------------------------------------
 # 1. SET YOUR CONTAINER SIZE (MUST MATCH MINIZINC!)
 # --------------------------------------------------
-W = 200  # container width  (x)
-L = 200  # container length (y)
-H = 200  # container height (z)
+W = 235  # container width  (x)
+L = 1203  # container length (y)
+H = 270  # container height (z)
 
 # --------------------------------------------------
 # 2. PASTE YOUR MINIZINC OUTPUT HERE
 #    each line: box_id,x,y,z,len,wid,hgt
 # --------------------------------------------------
 solution_text = """
-1,0,0,30,50,30,20
-2,0,60,0,40,30,20
-3,0,0,0,60,40,30
+0 0 0 0 115 115 88
+1 0 0 66 115 115 89
+2 0 0 66 115 115 89
+3 0 0 0 115 115 66
+4 0 0 155 115 115 66
+5 0 0 66 115 115 66
+6 1 0 0 114 114 230
+7 0 0 0 114 114 230
+8 1 1 0 114 114 230
+9 0 0 0 114 114 230
 """.strip()
 
 # --------------------------------------------------
@@ -24,7 +31,7 @@ solution_text = """
 boxes = []  # list of dicts: {id, x, y, z, l, w, h}
 
 for line in solution_text.splitlines():
-    parts = line.strip().split(",")
+    parts = line.strip().split(" ")
     if len(parts) != 7:
         continue
     b_id, x, y, z, l, w, h = map(int, parts)
@@ -43,6 +50,16 @@ for line in solution_text.splitlines():
 # --------------------------------------------------
 fig = plt.figure()
 ax = fig.add_subplot(111, projection='3d')
+
+
+ax.set_xlim(0, W)
+ax.set_ylim(0, L)
+ax.set_zlim(0, H)
+
+# 👇 Make the 3D box respect real proportions
+ax.set_box_aspect((W, L, H))   # or (W, L, H*something) if you want Z exaggerated
+
+
 
 colors = ['tab:blue', 'tab:orange', 'tab:green',
           'tab:red', 'tab:purple', 'tab:brown',

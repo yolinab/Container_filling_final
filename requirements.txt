@@ -1,0 +1,8 @@
+cpmpy
+ortools
+pandas
+numpy
+matplotlib
+openpyxl
+fastapi
+uvicorn[standard]

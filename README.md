@@ -27,3 +27,9 @@ The solver places all pallets inside a container while enforcing:
 ## How to run
 ```bash
 python main.py
+
+## Run the API locally (FastAPI sever in app/main.py)
+uvicorn app.main:app --reload
+
+## Visit
+http://127.0.0.1:8000/docs

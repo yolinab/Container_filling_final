@@ -1,6 +1,6 @@
 # Main entry point for running the box placement model test
 
-from utils.pipeline import  run_box_placement, run_reccomend_fill, estimate_container_need_by_volume, split_pallets_for_two_containers, run_box_placement_auto_split
+from utils.pipeline import  run_box_placement, run_reccomend_fill
 from utils.visualize_boxes import plot_boxes_3d, plot_modelA, plot_modelA_with_extras
 from models.A_box_placement_model import BoxPlacementModel
 import time
@@ -26,24 +26,21 @@ until the second model is extended into actual 3D placement logic.
 
 
 def main():
-    excel_path = "sample_instances/input_large.xlsx"
+    excel_path = "sample_instances/input_small.xlsx"
 
-    models_info, pallets_data = run_box_placement_auto_split(
-        excel_path, W, L, H, BUF,
-        solver="ortools",
-        time_limit=60,
-        fill_threshold=0.9,  # decrease if you want stricter "needs 2 containers"
+    start_time = time.time()    
+    modelA, free_len, pallets_data = run_box_placement(
+        excel_path, W, L, H, BUF, solver="ortools", time_limit=300
     )
+    end_time = time.time()
+    print(f"Model A solved in {end_time - start_time:.2f} seconds.")    
+    if modelA is None:
+        return
+    plot_modelA(modelA, W, L, H, BUF)
 
-    for info in models_info:
-        print(f"\n=== Container {info['container_index']} ===")
-        print("Pallet indices:", info["pallet_indices"])
-        print("free_len:", info["free_len"])
-        if info["model"] is None:
-            print("No feasible geometric solution for this container.")
-        else:
-            # e.g. you can plot here using your existing helper
-            pass
+    modelB_info = run_reccomend_fill(pallets_data, BUF, free_len, solver="ortools", time_limit=300)
+    if modelB_info is not None:
+        plot_modelA_with_extras(modelA, modelB_info["add"], W, L, H, BUF)
 
 
 

@@ -27,7 +27,7 @@ until the second model is extended into actual 3D placement logic.
 
 
 def main():
-    excel_path = "sample_instances/input_pallets.xlsx"
+    excel_path = "sample_instances/input_template.xlsx"
 
     # A: placement
     # Runs Model A 

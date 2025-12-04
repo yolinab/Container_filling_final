@@ -1,7 +1,6 @@
 # Main entry point for running the box placement model test
 
-from tests.test_A_box_placement_model import run_box_placement_test, print_model_solution
-from utils.pipeline import  run_box_placement, run_reccomend_fill, run_full_pipeline
+from utils.pipeline import  run_box_placement, run_reccomend_fill, estimate_container_need_by_volume, split_pallets_for_two_containers, run_box_placement_auto_split
 from utils.visualize_boxes import plot_boxes_3d, plot_modelA, plot_modelA_with_extras
 from models.A_box_placement_model import BoxPlacementModel
 import time
@@ -27,38 +26,24 @@ until the second model is extended into actual 3D placement logic.
 
 
 def main():
-    excel_path = "sample_instances/input_template.xlsx"
+    excel_path = "sample_instances/input_large.xlsx"
 
-    # A: placement
-    # Runs Model A 
-    # Returns the modelA instance, the leftover empty lenght in container, the pallet coordinate data
-    start_time = time.time()
-    modelA, free_len, pallets_data = run_box_placement(
+    models_info, pallets_data = run_box_placement_auto_split(
         excel_path, W, L, H, BUF,
         solver="ortools",
-        time_limit=60
+        time_limit=60,
+        fill_threshold=0.9,  # decrease if you want stricter "needs 2 containers"
     )
-    if modelA is None:
-        return
-    end_time = time.time()
-    print(f"Box placement model solved in {end_time - start_time:.2f} seconds.")
 
-    plot_modelA(modelA, W, L, H)
-
-    # B: recommend fill (uses pallets_data + free_len)
-    rec = run_reccomend_fill(
-        pallets_data,
-        BUF,
-        free_len,
-        solver="ortools",
-        time_limit=30
-    )
-    if rec is None:
-        print("No extra pallets recommended.")
-        return
-
-    add_list = rec["add"]
-    plot_modelA_with_extras(modelA, add_list, pallets_data, BUF, W, L, H)
+    for info in models_info:
+        print(f"\n=== Container {info['container_index']} ===")
+        print("Pallet indices:", info["pallet_indices"])
+        print("free_len:", info["free_len"])
+        if info["model"] is None:
+            print("No feasible geometric solution for this container.")
+        else:
+            # e.g. you can plot here using your existing helper
+            pass
 
 
 

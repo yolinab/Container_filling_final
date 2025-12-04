@@ -32,6 +32,7 @@ def main():
     # A: placement
     # Runs Model A 
     # Returns the modelA instance, the leftover empty lenght in container, the pallet coordinate data
+    start_time = time.time()
     modelA, free_len, pallets_data = run_box_placement(
         excel_path, W, L, H, BUF,
         solver="ortools",
@@ -39,6 +40,8 @@ def main():
     )
     if modelA is None:
         return
+    end_time = time.time()
+    print(f"Box placement model solved in {end_time - start_time:.2f} seconds.")
 
     plot_modelA(modelA, W, L, H)
 

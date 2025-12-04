@@ -63,6 +63,8 @@ class BoxPlacementModel:
         self._add_no_levitation_constraints()
         self._add_bounding_box_constraints()
         self._add_symmetry_breaking_constraints()
+        self._add_row_uniformity_constraints()
+        self._add_stack_same_footprint_constraints()
 
     def _add_rotation_constraints(self):
         """Rotation: if rot[p]=0 -> (eff_len=len, eff_wid=wid),
@@ -205,6 +207,54 @@ class BoxPlacementModel:
                 self.model += (
                     (self.x[p] < self.x[q]) |
                     ((self.x[p] == self.x[q]) & (self.y[p] <= self.y[q]))
+                )
+    
+    def _add_row_uniformity_constraints(self):
+        """
+        Rows are defined left-to-right:
+          - same row => same y and same z (same level, same front-back position)
+        Each row must contain pallets with the same (length x width).
+        """
+        n = self.num_boxes
+        for p in range(n):
+            for q in range(p + 1, n):
+                # p and q are in the same row if they are on the same level and
+                # have the same y-position (front-back coordinate)
+                same_row = (self.z[p] == self.z[q]) & (self.y[p] == self.y[q])
+
+                # If in the same row, their effective length/width must match
+                self.model += same_row.implies(
+                    (self.eff_len[p] == self.eff_len[q]) &
+                    (self.eff_wid[p] == self.eff_wid[q])
+                )
+
+    def _add_stack_same_footprint_constraints(self):
+        """
+        If a pallet p is stacked on a pallet q (same support condition
+        as in _add_no_levitation_constraints), then p and q must have
+        the same effective (length x width).
+        """
+        n = self.num_boxes
+
+        for p in range(n):
+            for q in range(n):
+                if p == q:
+                    continue
+
+                Hq = self.heights[q]
+
+                stacked_on_q = (
+                    (self.z[p] == self.z[q] + Hq) &
+                    (self.x[p] >= self.x[q]) &
+                    (self.x[p] + self.eff_wid[p] <= self.x[q] + self.eff_wid[q]) &
+                    (self.y[p] >= self.y[q]) &
+                    (self.y[p] + self.eff_len[p] <= self.y[q] + self.eff_len[q])
+                )
+
+                # If p is stacked on q, they must have identical footprint size
+                self.model += stacked_on_q.implies(
+                    (self.eff_len[p] == self.eff_len[q]) &
+                    (self.eff_wid[p] == self.eff_wid[q])
                 )
     # ------------------------------------------------------------------
     # Objective

@@ -22,14 +22,18 @@ def main():
     excel_path = "sample_instances/input_small.xlsx"
 
     start_time = time.time()    
+
     modelA, free_len, pallets_data = run_box_placement(
-        excel_path, W, L, H, BUF, solver="ortools", time_limit=60
-    )
+    excel_path, W, L, H, BUF, solver="ortools", time_limit=300
+)
+
     end_time = time.time()
-    print(f"Model A solved in {end_time - start_time:.2f} seconds.")    
+    print(f"Model A solved in {end_time - start_time:.2f} seconds.")   
+
     if modelA is None:
         return
-    plot_modelA(modelA, W, L, H)
+    
+    plot_modelA(modelA, W, L, H, pallets_data=pallets_data)
 
     # modelB_info = run_reccomend_fill(pallets_data, BUF, free_len, solver="ortools", time_limit=300)
     # if modelB_info is not None:

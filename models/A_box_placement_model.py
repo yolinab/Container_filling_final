@@ -3,19 +3,47 @@ from cpmpy import any as cpm_any
 
 
 class BoxPlacementModel:
+    """
+    Simplified 3D pallet placement model.
 
-    def __init__(self, lengths, widths, heights, W, L, H, BUF):
-        # Input data
-        self.lengths = list(lengths)
-        self.widths  = list(widths)
-        self.heights = list(heights)
-        self.W = int(W)
-        self.L = int(L)
-        self.H = int(H)
+    - X (width) and Y (length) are discretised into coarse slots.
+      We don't work in raw cm any more for positions, only for sizes.
+    - No rotations: we use (lengths[p], widths[p]) as given.
+    - Constraints kept:
+        * inside container
+        * no overlap
+        * no levitation (support)
+        * bounding box + compactness objective
+    - Constraints dropped (for speed / simplicity):
+        * row_uniformity
+        * stack_same_footprint
+        * height_ordering
+        * rotations
+    """
+
+    def __init__(self, lengths, widths, heights, W, L, H, BUF,
+                 step_x=10, step_y=10):
+        # ---- Input data (sizes always in cm) ----
+        self.lengths = list(lengths)  # along container length (Y)
+        self.widths  = list(widths)   # along container width  (X)
+        self.heights = list(heights)  # height (Z)
+
+        self.W = int(W)   # container width
+        self.L = int(L)   # container length
+        self.H = int(H)   # container height
         self.BUF = int(BUF)
 
         self.num_boxes = len(self.lengths)
         assert self.num_boxes == len(self.widths) == len(self.heights)
+
+        # ---- Discretisation steps (in cm) ----
+        # Positions can only start at multiples of these.
+        self.STEP_X = int(step_x)
+        self.STEP_Y = int(step_y)
+
+        # Number of slots along each axis
+        self.NX = self.W // self.STEP_X  # index 0..NX
+        self.NY = self.L // self.STEP_Y  # index 0..NY
 
         # Create model, vars, constraints, objective
         self._create_variables()
@@ -28,93 +56,91 @@ class BoxPlacementModel:
     def _create_variables(self):
         n = self.num_boxes
 
-        # Decision Variables: positions
-        self.x = intvar(0, self.W, shape=n, name="x")  # x-position
-        self.y = intvar(0, self.L, shape=n, name="y")  # y-position
-        self.z = intvar(0, self.H, shape=n, name="z")  # z-position
+        # Discretised positions: slot indices, not cm
+        # Physical coordinate is:
+        #   x_cm = ix[p] * STEP_X
+        #   y_cm = iy[p] * STEP_Y
+        self.ix = intvar(0, self.NX, shape=n, name="ix")  # width slots
+        self.iy = intvar(0, self.NY, shape=n, name="iy")  # length slots
 
-        # Rotation: 0 = normal, 1 = swapped
-        self.rot = boolvar(shape=n, name="rot")
+        # z still in cm (you *could* also discretise, but not needed yet)
+        self.z = intvar(0, self.H, shape=n, name="z")
 
-        # Effective dimensions after rotation
-        max_len_or_wid = max(max(self.lengths), max(self.widths))
-        self.eff_len = intvar(0, max_len_or_wid, shape=n, name="eff_len")
-        self.eff_wid = intvar(0, max_len_or_wid, shape=n, name="eff_wid")
-
-        # Extents / bounding box over all boxes
+        # Extents / bounding box over all boxes (in cm)
         self.max_used_height = intvar(0, self.H, name="max_used_height")
         self.max_x_extent    = intvar(0, self.W, name="max_x_extent")
         self.max_y_extent    = intvar(0, self.L, name="max_y_extent")
 
-        # Optional clustering metric (not used in objective now)
-        self.cluster_score = sum(self.x[i] + self.y[i] for i in range(n))
-
-        # The model object
+        # Model object
         self.model = Model()
+
+    # Convenience: physical coordinates in cm (expressions)
+    def _x_cm(self, p):
+        return self.ix[p] * self.STEP_X
+
+    def _y_cm(self, p):
+        return self.iy[p] * self.STEP_Y
 
     # ------------------------------------------------------------------
     # Constraints
     # ------------------------------------------------------------------
     def _create_constraints(self):
         self.model = Model()
-        self._add_rotation_constraints()
         self._add_inside_container_constraints()
         self._add_no_overlap_constraints()
         self._add_no_levitation_constraints()
         self._add_bounding_box_constraints()
-        self._add_symmetry_breaking_constraints()
-        self._add_row_uniformity_constraints()
-        self._add_stack_same_footprint_constraints()
-        self._add_height_ordering_constraints()
-        # self._add_height_ordering_constraints()
+        self._add_symmetry_breaking_constraints()  # still cheap & helpful
 
-    def _add_rotation_constraints(self):
-        """Rotation: if rot[p]=0 -> (eff_len=len, eff_wid=wid),
-                     if rot[p]=1 -> (eff_len=wid, eff_wid=len)"""
+    def _add_inside_container_constraints(self):
+        """
+        Each box must lie fully inside the container.
+        Using discretised positions:
+          x_cm = ix * STEP_X
+          y_cm = iy * STEP_Y
+        """
         for p in range(self.num_boxes):
             Lp = self.lengths[p]
             Wp = self.widths[p]
-
-            # rot[p] == 0
-            self.model += (~self.rot[p]).implies(self.eff_len[p] == Lp)
-            self.model += (~self.rot[p]).implies(self.eff_wid[p] == Wp)
-
-            # rot[p] == 1
-            self.model += ( self.rot[p]).implies(self.eff_len[p] == Wp)
-            self.model += ( self.rot[p]).implies(self.eff_wid[p] == Lp)
-
-    def _add_inside_container_constraints(self):
-        """Each box must lie fully inside the container."""
-        for p in range(self.num_boxes):
             Hp = self.heights[p]
-            self.model += self.x[p] + self.eff_wid[p] <= self.W
-            self.model += self.y[p] + self.eff_len[p] <= self.L
-            self.model += self.z[p] + Hp              <= self.H
+
+            self.model += self._x_cm(p) + Wp <= self.W
+            self.model += self._y_cm(p) + Lp <= self.L
+            self.model += self.z[p] + Hp    <= self.H
 
     def _add_no_overlap_constraints(self):
         """
-        No overlap with buffer on x,y.
-        Allow stacking in z (no buffer in z), via disjunction:
-          - strictly apart in x OR
-          - strictly apart in y OR
-          - non-overlapping in z (stacked).
+        No overlap, with buffer B on X/Y, stacking allowed in Z.
+
+        For any two pallets p, q:
+          at least one of these holds:
+            - p is strictly to the "right" of q in X
+            - q is strictly to the right of p in X
+            - p is strictly "in front of" q in Y
+            - q is strictly in front of p in Y
+            - p is entirely below q in Z
+            - q is entirely below p in Z
         """
         n = self.num_boxes
         B = self.BUF
 
         for p in range(n):
             for q in range(p + 1, n):
-                Hp = self.heights[p]
-                Hq = self.heights[q]
+                Lp, Wp, Hp = self.lengths[p], self.widths[p], self.heights[p]
+                Lq, Wq, Hq = self.lengths[q], self.widths[q], self.heights[q]
 
-                # Disjunction: at least one must hold
-                sep_x = self.x[p] + self.eff_wid[p] + B <= self.x[q]
-                sep_x_rev = self.x[q] + self.eff_wid[q] + B <= self.x[p]
+                xp = self._x_cm(p)
+                xq = self._x_cm(q)
+                yp = self._y_cm(p)
+                yq = self._y_cm(q)
 
-                sep_y = self.y[p] + self.eff_len[p] + B <= self.y[q]
-                sep_y_rev = self.y[q] + self.eff_len[q] + B <= self.y[p]
+                sep_x     = xp + Wp + B <= xq
+                sep_x_rev = xq + Wq + B <= xp
 
-                sep_z = self.z[p] + Hp <= self.z[q]
+                sep_y     = yp + Lp + B <= yq
+                sep_y_rev = yq + Lq + B <= yp
+
+                sep_z     = self.z[p] + Hp <= self.z[q]
                 sep_z_rev = self.z[q] + Hq <= self.z[p]
 
                 self.model += (
@@ -129,57 +155,63 @@ class BoxPlacementModel:
     def _add_no_levitation_constraints(self):
         """
         No levitation:
-          For each box p:
-            - either it sits on the floor (z[p] == 0), OR
-            - it is supported by some other box q (q != p) such that
-                z[p] = z[q] + h[q]
-                and the footprint of p is within footprint of q.
+
+        For each pallet p:
+          - either z[p] == 0 (sits on the floor), OR
+          - there exists q != p such that:
+              z[p] = z[q] + h[q]
+              and footprint of p is fully inside footprint of q
+                (in X and Y, using discretised x_cm, y_cm).
         """
         n = self.num_boxes
 
         for p in range(n):
-            # p sits on the floor:
             on_floor = (self.z[p] == 0)
 
-            # OR p is supported by some q != p
             support_exprs = []
+            Lp, Wp = self.lengths[p], self.widths[p]
+
             for q in range(n):
                 if q == p:
                     continue
 
-                Hq = self.heights[q]
+                Lq, Wq, Hq = self.lengths[q], self.widths[q], self.heights[q]
 
-                # is_supported_by(p,q)
+                xp = self._x_cm(p)
+                xq = self._x_cm(q)
+                yp = self._y_cm(p)
+                yq = self._y_cm(q)
+
                 support_pq = (
                     (self.z[p] == self.z[q] + Hq) &
-                    (self.x[p] >= self.x[q]) &
-                    (self.x[p] + self.eff_wid[p] <= self.x[q] + self.eff_wid[q]) &
-                    (self.y[p] >= self.y[q]) &
-                    (self.y[p] + self.eff_len[p] <= self.y[q] + self.eff_len[q])
+                    (xp >= xq) &
+                    (xp + Wp <= xq + Wq) &
+                    (yp >= yq) &
+                    (yp + Lp <= yq + Lq)
                 )
                 support_exprs.append(support_pq)
 
             supported_by_some_q = cpm_any(support_exprs) if support_exprs else False
-
             self.model += on_floor | supported_by_some_q
 
     def _add_bounding_box_constraints(self):
         """
-        Bounding rectangle of all stacked boxes together:
-          max_x_extent = max_p (x[p] + eff_wid[p])
-          max_y_extent = max_p (y[p] + eff_len[p])
-          max_used_height = max_p (z[p] + hgt[p])
+        Bounding box in cm:
+
+          max_x_extent    = max_p (x_cm[p] + width[p])
+          max_y_extent    = max_p (y_cm[p] + length[p])
+          max_used_height = max_p (z[p] + height[p])
         """
         n = self.num_boxes
 
         self.model += (
             self.max_x_extent ==
-            max([self.x[p] + self.eff_wid[p] for p in range(n)])
+            max([self._x_cm(p) + self.widths[p] for p in range(n)])
         )
 
         self.model += (
             self.max_y_extent ==
-            max([self.y[p] + self.eff_len[p] for p in range(n)])
+            max([self._y_cm(p) + self.lengths[p] for p in range(n)])
         )
 
         self.model += (
@@ -189,9 +221,9 @@ class BoxPlacementModel:
 
     def _add_symmetry_breaking_constraints(self):
         """
-        Symmetry-breaking: for boxes with identical dimensions,
-        impose an ordering on (x,y) to avoid exploring permutations
-        of identical solutions.
+        Symmetry-breaking: for pallets with identical (L,W,H),
+        impose a lexicographic order on (ix, iy) to avoid exploring
+        permutations of identical solutions.
         """
         n = self.num_boxes
         for p in range(n):
@@ -204,141 +236,36 @@ class BoxPlacementModel:
                 if not same_dims:
                     continue
 
-                # Enforce: box p is "not after" box q in (x,y) lexicographically
-                # x[p] < x[q] OR (x[p] == x[q] AND y[p] <= y[q])
+                # Enforce: (ix[p], iy[p]) <=_lex (ix[q], iy[q])
                 self.model += (
-                    (self.x[p] < self.x[q]) |
-                    ((self.x[p] == self.x[q]) & (self.y[p] <= self.y[q]))
-                )
-    
-    def _add_row_uniformity_constraints(self):
-        """
-        Rows are defined left-to-right:
-          - same row => same y and same z (same level, same front-back position)
-        Each row must contain pallets with the same (length x width).
-        """
-        n = self.num_boxes
-        for p in range(n):
-            for q in range(p + 1, n):
-                # p and q are in the same row if they are on the same level and
-                # have the same y-position (front-back coordinate)
-                same_row = (self.z[p] == self.z[q]) & (self.y[p] == self.y[q])
-
-                # If in the same row, their effective length/width must match
-                self.model += same_row.implies(
-                    (self.eff_len[p] == self.eff_len[q]) &
-                    (self.eff_wid[p] == self.eff_wid[q])
+                    (self.ix[p] < self.ix[q]) |
+                    ((self.ix[p] == self.ix[q]) & (self.iy[p] <= self.iy[q]))
                 )
 
-    def _add_stack_same_footprint_constraints(self):
-        """
-        If a pallet p is stacked on a pallet q (same support condition
-        as in _add_no_levitation_constraints), then p and q must have
-        the same effective (length x width).
-        """
-        n = self.num_boxes
-
-        for p in range(n):
-            for q in range(n):
-                if p == q:
-                    continue
-
-                Hq = self.heights[q]
-
-                stacked_on_q = (
-                    (self.z[p] == self.z[q] + Hq) &
-                    (self.x[p] >= self.x[q]) &
-                    (self.x[p] + self.eff_wid[p] <= self.x[q] + self.eff_wid[q]) &
-                    (self.y[p] >= self.y[q]) &
-                    (self.y[p] + self.eff_len[p] <= self.y[q] + self.eff_len[q])
-                )
-
-                # If p is stacked on q, they must have identical footprint size
-                self.model += stacked_on_q.implies(
-                    (self.eff_len[p] == self.eff_len[q]) &
-                    (self.eff_wid[p] == self.eff_wid[q])
-                )
-
-    def _add_height_ordering_constraints(self):
-        """
-        Heuristic ordering:
-        - Among pallets on the floor (z == 0),
-          taller pallets should not be placed in front of shorter ones.
-        - Formally: if heights[p] > heights[q] and both are on the floor,
-          then y[p] >= y[q] (p is at least as far back as q).
-        """
-        n = self.num_boxes
-        for p in range(n):
-            for q in range(n):
-                if p == q:
-                    continue
-
-                # Heights are constants, so check this in Python:
-                if self.heights[p] > self.heights[q]:
-                    # If both on floor, enforce y[p] >= y[q]
-                    self.model += (
-                        ((self.z[p] == 0) & (self.z[q] == 0))
-                    ).implies(self.y[p] >= self.y[q])
-
-    def _add_height_ordering_constraints(self):
-        """
-        Heuristic ordering:
-        For floor pallets with the same footprint (eff_len, eff_wid),
-        taller ones must be placed at least as far back (y) as shorter ones.
-        """
-        n = self.num_boxes
-        for p in range(n):
-            for q in range(n):
-                if p == q:
-                    continue
-
-                if self.heights[p] <= self.heights[q]:
-                    continue
-
-                # condition: both on floor and same footprint
-                same_footprint_floor = (
-                    (self.z[p] == 0) &
-                    (self.z[q] == 0) &
-                    (self.eff_len[p] == self.eff_len[q]) &
-                    (self.eff_wid[p] == self.eff_wid[q])
-                )
-
-                self.model += same_footprint_floor.implies(self.y[p] >= self.y[q])
     # ------------------------------------------------------------------
     # Objective
     # ------------------------------------------------------------------
-    # def _create_objective(self):
-        # """
-        # Objective: minimize
-        #    1000 * max_used_height + max_y_extent + max_x_extent
-        # (cluster_score is defined but not used, as in your MiniZinc model).
-        # """
-        # obj = 1000 * self.max_used_height + self.max_y_extent + self.max_x_extent
-        # self.model.minimize(obj)
-        
-    # def _create_objective(self):
-    #     """
-    #     Objective: primarily minimise used length (max_y_extent),
-    #         secondarily avoid unnecessary stack height.
-    # """
-    #     # Big weight on used length, small on height
-    #     obj = 1000 * self.max_y_extent + self.max_used_height
-    #     self.model.minimize(obj)
-
-    
     def _create_objective(self):
+        """
+        Objective: compact packing.
+
+        Primary: minimise used height, then used length, then used width.
+        Secondary: small bias toward clustering near origin (optional).
+        """
         n = self.num_boxes
 
-        # main: compact bounding box
-        main_term = 1000 * self.max_used_height + self.max_y_extent + self.max_x_extent
+        main_term = (
+            1000 * self.max_used_height +
+            10   * self.max_y_extent +
+            1    * self.max_x_extent
+        )
 
-        # secondary: penalise distance from origin, weighted by height or area
+        # weak clustering term (uses indices, not cm)
         spread_term = sum(
-            (self.x[p] + self.y[p]) * self.heights[p]   # or * (self.lengths[p]*self.widths[p])
+            (self.ix[p] + self.iy[p]) * self.heights[p]
             for p in range(n)
         )
 
-        # small weight so it only breaks ties, doesn’t ruin compactness
         self.model.minimize(main_term * 1000 + spread_term)
 
     # ------------------------------------------------------------------
@@ -347,6 +274,6 @@ class BoxPlacementModel:
     def solve(self, **solver_args):
         """
         Solve the model.
-        Returns True if a solution is found, False otherwise.
+        Returns True if a solution is found.
         """
         return self.model.solve(**solver_args)

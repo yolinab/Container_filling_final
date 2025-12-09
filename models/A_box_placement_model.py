@@ -63,6 +63,10 @@ class BoxPlacementModel:
         self._add_no_levitation_constraints()
         self._add_bounding_box_constraints()
         self._add_symmetry_breaking_constraints()
+        self._add_row_uniformity_constraints()
+        self._add_stack_same_footprint_constraints()
+        self._add_height_ordering_constraints()
+        # self._add_height_ordering_constraints()
 
     def _add_rotation_constraints(self):
         """Rotation: if rot[p]=0 -> (eff_len=len, eff_wid=wid),
@@ -206,17 +210,136 @@ class BoxPlacementModel:
                     (self.x[p] < self.x[q]) |
                     ((self.x[p] == self.x[q]) & (self.y[p] <= self.y[q]))
                 )
+    
+    def _add_row_uniformity_constraints(self):
+        """
+        Rows are defined left-to-right:
+          - same row => same y and same z (same level, same front-back position)
+        Each row must contain pallets with the same (length x width).
+        """
+        n = self.num_boxes
+        for p in range(n):
+            for q in range(p + 1, n):
+                # p and q are in the same row if they are on the same level and
+                # have the same y-position (front-back coordinate)
+                same_row = (self.z[p] == self.z[q]) & (self.y[p] == self.y[q])
+
+                # If in the same row, their effective length/width must match
+                self.model += same_row.implies(
+                    (self.eff_len[p] == self.eff_len[q]) &
+                    (self.eff_wid[p] == self.eff_wid[q])
+                )
+
+    def _add_stack_same_footprint_constraints(self):
+        """
+        If a pallet p is stacked on a pallet q (same support condition
+        as in _add_no_levitation_constraints), then p and q must have
+        the same effective (length x width).
+        """
+        n = self.num_boxes
+
+        for p in range(n):
+            for q in range(n):
+                if p == q:
+                    continue
+
+                Hq = self.heights[q]
+
+                stacked_on_q = (
+                    (self.z[p] == self.z[q] + Hq) &
+                    (self.x[p] >= self.x[q]) &
+                    (self.x[p] + self.eff_wid[p] <= self.x[q] + self.eff_wid[q]) &
+                    (self.y[p] >= self.y[q]) &
+                    (self.y[p] + self.eff_len[p] <= self.y[q] + self.eff_len[q])
+                )
+
+                # If p is stacked on q, they must have identical footprint size
+                self.model += stacked_on_q.implies(
+                    (self.eff_len[p] == self.eff_len[q]) &
+                    (self.eff_wid[p] == self.eff_wid[q])
+                )
+
+    def _add_height_ordering_constraints(self):
+        """
+        Heuristic ordering:
+        - Among pallets on the floor (z == 0),
+          taller pallets should not be placed in front of shorter ones.
+        - Formally: if heights[p] > heights[q] and both are on the floor,
+          then y[p] >= y[q] (p is at least as far back as q).
+        """
+        n = self.num_boxes
+        for p in range(n):
+            for q in range(n):
+                if p == q:
+                    continue
+
+                # Heights are constants, so check this in Python:
+                if self.heights[p] > self.heights[q]:
+                    # If both on floor, enforce y[p] >= y[q]
+                    self.model += (
+                        ((self.z[p] == 0) & (self.z[q] == 0))
+                    ).implies(self.y[p] >= self.y[q])
+
+    def _add_height_ordering_constraints(self):
+        """
+        Heuristic ordering:
+        For floor pallets with the same footprint (eff_len, eff_wid),
+        taller ones must be placed at least as far back (y) as shorter ones.
+        """
+        n = self.num_boxes
+        for p in range(n):
+            for q in range(n):
+                if p == q:
+                    continue
+
+                if self.heights[p] <= self.heights[q]:
+                    continue
+
+                # condition: both on floor and same footprint
+                same_footprint_floor = (
+                    (self.z[p] == 0) &
+                    (self.z[q] == 0) &
+                    (self.eff_len[p] == self.eff_len[q]) &
+                    (self.eff_wid[p] == self.eff_wid[q])
+                )
+
+                self.model += same_footprint_floor.implies(self.y[p] >= self.y[q])
     # ------------------------------------------------------------------
     # Objective
     # ------------------------------------------------------------------
+    # def _create_objective(self):
+        # """
+        # Objective: minimize
+        #    1000 * max_used_height + max_y_extent + max_x_extent
+        # (cluster_score is defined but not used, as in your MiniZinc model).
+        # """
+        # obj = 1000 * self.max_used_height + self.max_y_extent + self.max_x_extent
+        # self.model.minimize(obj)
+        
+    # def _create_objective(self):
+    #     """
+    #     Objective: primarily minimise used length (max_y_extent),
+    #         secondarily avoid unnecessary stack height.
+    # """
+    #     # Big weight on used length, small on height
+    #     obj = 1000 * self.max_y_extent + self.max_used_height
+    #     self.model.minimize(obj)
+
+    
     def _create_objective(self):
-        """
-        Objective: minimize
-           1000 * max_used_height + max_y_extent + max_x_extent
-        (cluster_score is defined but not used, as in your MiniZinc model).
-        """
-        obj = 1000 * self.max_used_height + self.max_y_extent + self.max_x_extent
-        self.model.minimize(obj)
+        n = self.num_boxes
+
+        # main: compact bounding box
+        main_term = 1000 * self.max_used_height + self.max_y_extent + self.max_x_extent
+
+        # secondary: penalise distance from origin, weighted by height or area
+        spread_term = sum(
+            (self.x[p] + self.y[p]) * self.heights[p]   # or * (self.lengths[p]*self.widths[p])
+            for p in range(n)
+        )
+
+        # small weight so it only breaks ties, doesn’t ruin compactness
+        self.model.minimize(main_term * 1000 + spread_term)
 
     # ------------------------------------------------------------------
     # Solve

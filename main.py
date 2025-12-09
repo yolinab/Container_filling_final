@@ -1,7 +1,6 @@
 # Main entry point for running the box placement model test
 
-from tests.test_A_box_placement_model import run_box_placement_test, print_model_solution
-from utils.pipeline import  run_box_placement, run_reccomend_fill, run_full_pipeline
+from utils.pipeline import  run_box_placement, run_reccomend_fill
 from utils.visualize_boxes import plot_boxes_3d, plot_modelA, plot_modelA_with_extras
 from models.A_box_placement_model import BoxPlacementModel
 import time
@@ -27,35 +26,21 @@ until the second model is extended into actual 3D placement logic.
 
 
 def main():
-    excel_path = "sample_instances/input_template.xlsx"
+    excel_path = "sample_instances/input_small.xlsx"
 
-    # A: placement
-    # Runs Model A 
-    # Returns the modelA instance, the leftover empty lenght in container, the pallet coordinate data
+    start_time = time.time()    
     modelA, free_len, pallets_data = run_box_placement(
-        excel_path, W, L, H, BUF,
-        solver="ortools",
-        time_limit=60
+        excel_path, W, L, H, BUF, solver="ortools", time_limit=300
     )
+    end_time = time.time()
+    print(f"Model A solved in {end_time - start_time:.2f} seconds.")    
     if modelA is None:
         return
+    plot_modelA(modelA, W, L, H, BUF)
 
-    plot_modelA(modelA, W, L, H)
-
-    # B: recommend fill (uses pallets_data + free_len)
-    rec = run_reccomend_fill(
-        pallets_data,
-        BUF,
-        free_len,
-        solver="ortools",
-        time_limit=30
-    )
-    if rec is None:
-        print("No extra pallets recommended.")
-        return
-
-    add_list = rec["add"]
-    plot_modelA_with_extras(modelA, add_list, pallets_data, BUF, W, L, H)
+    modelB_info = run_reccomend_fill(pallets_data, BUF, free_len, solver="ortools", time_limit=300)
+    if modelB_info is not None:
+        plot_modelA_with_extras(modelA, modelB_info["add"], W, L, H, BUF)
 
 
 

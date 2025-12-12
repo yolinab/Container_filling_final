@@ -232,3 +232,40 @@ def plot_boxes_3d(W, L, H, boxes):
 #     boxes_all = boxes_main + boxes_extra
 #     plot_boxes_3d(W, L, H, boxes_all)
 #     return boxes_all    
+
+# utils/visualize_boxes.py
+
+def build_boxes_from_modelAA(modelA, loaded_meta=None):
+    boxes = []
+    for p in range(modelA.num_boxes):
+        if hasattr(modelA, "load"):
+            if modelA.load[p].value() == 0:
+                continue
+
+        # discretised coordinates -> cm
+        x_cm = modelA.ix[p].value() * modelA.STEP_X
+        y_cm = modelA.iy[p].value() * modelA.STEP_Y
+
+        b = {
+            "id": p + 1,
+            "x": x_cm,
+            "y": y_cm,
+            "z": modelA.z[p].value(),
+            "w": modelA.widths[p],
+            "l": modelA.lengths[p],
+            "h": modelA.heights[p],
+        }
+
+        if loaded_meta is not None:
+            # loaded_meta is in the same order as "loaded pallets", not p.
+            # easiest is: store meta in model order before solving (recommended).
+            pass
+
+        boxes.append(b)
+    return boxes
+
+
+def plot_modelAA(modelA, W, L, H, pallets_data=None, loaded_meta=None):
+    boxes = build_boxes_from_modelAA(modelA, loaded_meta=loaded_meta)
+    plot_boxes_3d(W, L, H, boxes)
+    return boxes

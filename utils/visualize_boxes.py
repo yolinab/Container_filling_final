@@ -2,18 +2,45 @@
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
+
 # -------------------------------------------------------------------
 # High-level function for main.py
 # -------------------------------------------------------------------
 
-def plot_modelA(modelA, W, L, H):
+def plot_modelA(modelA, W, L, H, pallets_data=None):
     """
-    Plot just the solution of Model A (discretised grid model).
-    Returns the list of plotted box dicts.
+    Plot just the solution of Model A, with optional pallet metadata.
     """
     boxes = build_boxes_from_modelA(modelA)
     plot_boxes_3d(W, L, H, boxes)
     return boxes
+
+# -------------------------------------------------------------------
+# Helper to expand pallets_data into per-box metadata
+# -------------------------------------------------------------------
+
+def _expand_meta_from_pallets_data(pallets_data, num_boxes):
+    """
+    Expand pallets_data (per pallet type with 'count') into a per-pallet
+    metadata list aligned with box indices 0..num_boxes-1.
+
+    Assumes the BoxPlacementModel was created by expanding lengths/widths/heights
+    in the same order and repetition as here.
+    """
+    meta = []
+    for row in pallets_data:
+        for _ in range(row["count"]):
+            meta.append({
+                "pallet_type": row.get("pallet_type", ""),
+                "pallet_size": row.get("pallet_size", ""),
+                "length": row.get("length", None),
+                "width": row.get("width", None),
+                "height": row.get("height", None),
+            })
+    # Optional safety check:
+    if len(meta) != num_boxes:
+        print(f"[WARN] meta count {len(meta)} != num_boxes {num_boxes}")
+    return meta
 
 # -------------------------------------------------------------------
 # Helpers: build boxes from Model A
@@ -68,14 +95,6 @@ def build_boxes_from_modelA(modelA):
 # -------------------------------------------------------------------
 
 def plot_boxes_3d(W, L, H, boxes):
-    """
-    Generic 3D visualisation of a list of boxes.
-
-    Each box dict must contain:
-      - x, y, z : coordinates in cm (bottom-lower-back corner)
-      - w, l, h : width (X), length (Y), height (Z) in cm
-      - id      : any label (int/str) to display inside the box
-    """
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
 
@@ -84,13 +103,11 @@ def plot_boxes_3d(W, L, H, boxes):
     ax.set_zlim(0, H)
     ax.set_box_aspect((W, L, H))
 
-    colors = [
-        "tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple",
-        "tab:brown", "tab:pink", "tab:gray", "tab:olive", "tab:cyan"
-    ]
+    colors = ['tab:blue', 'tab:orange', 'tab:green',
+              'tab:red', 'tab:purple', 'tab:brown',
+              'tab:pink', 'tab:gray', 'tab:olive', 'tab:cyan']
 
     for i, b in enumerate(boxes):
-        # bar3d: x, y, z, dx, dy, dz
         ax.bar3d(
             b["x"], b["y"], b["z"],
             b["w"], b["l"], b["h"],
@@ -98,18 +115,44 @@ def plot_boxes_3d(W, L, H, boxes):
             color=colors[i % len(colors)],
             edgecolor="k",
             linewidth=0.5,
-            shade=True,
+            shade=True
         )
 
-        # label roughly at center
         cx = b["x"] + b["w"] / 2
         cy = b["y"] + b["l"] / 2
         cz = b["z"] + b["h"] / 2
         ax.text(cx, cy, cz, str(b["id"]), color="k", fontsize=8)
 
-    ax.set_xlabel("X (width, cm)")
-    ax.set_ylabel("Y (length, cm)")
-    ax.set_zlabel("Z (height, cm)")
+    ax.set_xlabel('X (width)')
+    ax.set_ylabel('Y (length)')
+    ax.set_zlabel('Z (height)')
+
+    # ---------- legend text (id → dims (+ type)) ----------
+    legend_lines = []
+    for b in boxes:
+        # If pallet_size string is present (e.g. "1.15x1.15x1.01"), use it.
+        if b.get("pallet_size"):
+            size_label = b["pallet_size"]
+        else:
+            size_label = f"{b['l']}x{b['w']}x{b['h']}"
+
+        line = f"{b['id']:>2}: {size_label}"
+        if b.get("pallet_type"):
+            line += f"  ({b['pallet_type']})"
+        legend_lines.append(line)
+
+    legend_text = "\n".join(legend_lines)
+
+    # put legend in figure margin (bottom-left; tweak coords if needed)
+    fig.text(
+        0.02, 0.02,
+        legend_text,
+        fontsize=8,
+        family="monospace",
+        va="bottom",
+        ha="left"
+    )
+    # ------------------------------------------------------
 
     plt.tight_layout()
     plt.show()
@@ -189,3 +232,40 @@ def plot_boxes_3d(W, L, H, boxes):
 #     boxes_all = boxes_main + boxes_extra
 #     plot_boxes_3d(W, L, H, boxes_all)
 #     return boxes_all    
+
+# utils/visualize_boxes.py
+
+def build_boxes_from_modelAA(modelA, loaded_meta=None):
+    boxes = []
+    for p in range(modelA.num_boxes):
+        if hasattr(modelA, "load"):
+            if modelA.load[p].value() == 0:
+                continue
+
+        # discretised coordinates -> cm
+        x_cm = modelA.ix[p].value() * modelA.STEP_X
+        y_cm = modelA.iy[p].value() * modelA.STEP_Y
+
+        b = {
+            "id": p + 1,
+            "x": x_cm,
+            "y": y_cm,
+            "z": modelA.z[p].value(),
+            "w": modelA.widths[p],
+            "l": modelA.lengths[p],
+            "h": modelA.heights[p],
+        }
+
+        if loaded_meta is not None:
+            # loaded_meta is in the same order as "loaded pallets", not p.
+            # easiest is: store meta in model order before solving (recommended).
+            pass
+
+        boxes.append(b)
+    return boxes
+
+
+def plot_modelAA(modelA, W, L, H, pallets_data=None, loaded_meta=None):
+    boxes = build_boxes_from_modelAA(modelA, loaded_meta=loaded_meta)
+    plot_boxes_3d(W, L, H, boxes)
+    return boxes

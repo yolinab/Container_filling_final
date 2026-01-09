@@ -20,7 +20,8 @@ from utils.parse_xlsx import parse_pallet_excel_v3
 from utils.oneDbuildblocks import build_row_blocks_from_pallets
 from models.A_1D_multi_container_placement_chatGPT import RowBlock1DOrderModel
 
-from utils.visualize_row_blocks import plot_all_row_block_containers
+from utils.visualize_row_blocks import plot_all_row_block_containers_pallets
+
 
 
 def select_one_variant_per_block(blocks):
@@ -228,7 +229,7 @@ def main(
     # 8) Visualization of all containers
     # ------------------------------------------------------------
     # containers = main("sample_instances/input_large.xlsx")
-    plot_all_row_block_containers(containers, W=235, L=1203, H=270)
+    plot_all_row_block_containers_pallets(containers, W=235, L=1203, H=270)
 
     return containers
 

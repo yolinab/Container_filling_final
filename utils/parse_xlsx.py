@@ -308,3 +308,142 @@ def parse_pallet_excel_v2(
         meta_per_pallet = []
 
     return lengths, widths, heights, pallets_data, meta_per_pallet
+
+
+def parse_pallet_excel_v3(
+    excel_path: str,
+    sheet_name: Any = 0,
+    return_per_pallet_meta: bool = True,
+) -> Tuple[List[int], List[int], List[int], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """
+    New format for multi-container/subset model:
+
+    Returns:
+      lengths, widths, heights: one entry per physical pallet (cm)
+      pallets_data: aggregated per type row
+      meta_per_pallet: one dict per physical pallet, aligned with lengths/widths/heights
+                      so meta_per_pallet[i] describes pallet i.
+
+    If return_per_pallet_meta=False, meta_per_pallet will be [].
+    """
+    df = pd.read_excel(excel_path, sheet_name=sheet_name)
+
+    # Required columns
+    col_pallet_size = _find_col_required(df, ["Pallet size", "size"])
+    col_count = _find_col_required(df, ["Total order full pallets", "full pallets", "order full pallets"])
+
+    # Optional columns (best-effort)
+    col_productname = _find_col_optional(df, ["Productname", "product name", "product"])
+    col_item = _find_col_optional(df, ["Item", "item"])
+    col_barcode = _find_col_optional(df, ["Barcode", "bar code", "ean"])
+    col_code = _find_col_optional(df, ["Code", "article", "sku"])
+    col_pallet_type = _find_col_optional(df, ["pallet type", "type"])  # sometimes exists
+
+    # NEW: Optional weight column (best-effort)
+    # Common names in Edelman exports: "External Net weight", sometimes "External net weight"
+    col_weight = _find_col_optional(df, [
+        "External Net weight", "external net weight",
+        "External net weight", "external weight",
+        "Net weight", "net weight",
+        "Weight", "weight"
+    ])
+
+    # Clean rows
+    df = df.dropna(subset=[col_pallet_size])
+    df = df.dropna(subset=[col_count])
+    df = df[df[col_count] > 0]
+
+    pallets_data: List[Dict[str, Any]] = []
+    meta_per_pallet: List[Dict[str, Any]] = []
+
+    lengths: List[int] = []
+    widths: List[int] = []
+    heights: List[int] = []
+
+    pallet_global_id = 1  # stable running id across expanded pallets
+
+    for _, row in df.iterrows():
+        size_str = row[col_pallet_size]
+        try:
+            L_cm, W_cm, H_cm = _parse_pallet_size_str(size_str)
+        except Exception:
+            continue
+
+        count = int(row[col_count])
+
+        # NEW: parse weight (best-effort)
+        weight_kg: Optional[float] = None
+        if col_weight and pd.notna(row[col_weight]):
+            try:
+                # handle strings like "1.234,5" or "1234.5"
+                raw = str(row[col_weight]).strip().replace(",", ".")
+                weight_kg = float(raw)
+            except Exception:
+                weight_kg = None
+
+        # Choose a human-readable label
+        label_parts = []
+        if col_productname and pd.notna(row[col_productname]):
+            label_parts.append(str(row[col_productname]).strip())
+        if col_item and pd.notna(row[col_item]):
+            label_parts.append(str(row[col_item]).strip())
+        if not label_parts and col_pallet_type and pd.notna(row[col_pallet_type]):
+            label_parts.append(str(row[col_pallet_type]).strip())
+
+        pallet_label = " | ".join(label_parts) if label_parts else "UNKNOWN"
+
+        # Aggregated row info (type-level)
+        type_row: Dict[str, Any] = {
+            "pallet_size_raw": str(size_str).strip(),
+            "length": L_cm,
+            "width": W_cm,
+            "height": H_cm,
+            "count": count,
+            "label": pallet_label,
+            # NEW
+            "weight_kg": weight_kg,
+        }
+        # Keep any useful ids if present
+        if col_barcode and pd.notna(row[col_barcode]):
+            type_row["barcode"] = str(row[col_barcode]).strip()
+        if col_code and pd.notna(row[col_code]):
+            type_row["code"] = str(row[col_code]).strip()
+
+        pallets_data.append(type_row)
+
+        # Expand to per-physical-pallet entries
+        for j in range(count):
+            lengths.append(L_cm)
+            widths.append(W_cm)
+            heights.append(H_cm)
+
+            if return_per_pallet_meta:
+                meta: Dict[str, Any] = {
+                    "pallet_id": pallet_global_id,     # 1..N expanded
+                    "type_index": len(pallets_data)-1, # index into pallets_data
+                    "within_type_index": j + 1,        # 1..count
+                    "label": pallet_label,
+                    "pallet_size_raw": str(size_str).strip(),
+                    "length": L_cm,
+                    "width": W_cm,
+                    "height": H_cm,
+                    # NEW
+                    "weight_kg": weight_kg,
+                }
+                if col_productname and pd.notna(row[col_productname]):
+                    meta["productname"] = str(row[col_productname]).strip()
+                if col_item and pd.notna(row[col_item]):
+                    meta["item"] = str(row[col_item]).strip()
+                if col_barcode and pd.notna(row[col_barcode]):
+                    meta["barcode"] = str(row[col_barcode]).strip()
+                if col_code and pd.notna(row[col_code]):
+                    meta["code"] = str(row[col_code]).strip()
+
+                meta_per_pallet.append(meta)
+
+            pallet_global_id += 1
+
+    if not return_per_pallet_meta:
+        meta_per_pallet = []
+
+    return lengths, widths, heights, pallets_data, meta_per_pallet

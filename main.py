@@ -15,7 +15,8 @@ The prototype recommender (Model B) was removed from the pipeline so we can focu
 The end result is a far more efficient, solver-friendly engine ready for the next development stage.
 """
 
-# Last save before 2D refactor attempt?
+# ACTUALLY this is the save before the attempt of implementing the ultimate simplest model
+# Simply a 1D array, using row blocks along the length of the container
 
 
 def main():

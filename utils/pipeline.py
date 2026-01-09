@@ -157,3 +157,31 @@ def run_multi_container_placement(
         k += 1
 
     return containers
+
+
+def compute_container_metrics(model, W, L, H):
+    # total container volume
+    container_volume = W * L * H
+
+    # loaded pallet volume
+    loaded_volume = model.loaded_vol_expr.value()
+
+    # used bounding box
+    used_x = model.max_x_extent.value()
+    used_y = model.max_y_extent.value()
+    used_z = model.max_used_height.value()
+
+    used_bbox_volume = max(1, used_x * used_y * used_z)  # avoid div-by-zero
+
+    return {
+        "loaded_volume": loaded_volume,
+        "container_volume": container_volume,
+        "fill_pct_volume": 100 * loaded_volume / container_volume,
+
+        "used_bbox_volume": used_bbox_volume,
+        "fill_pct_effective": 100 * loaded_volume / used_bbox_volume,
+
+        "used_x": used_x,
+        "used_y": used_y,
+        "used_z": used_z,
+    }
